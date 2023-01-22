@@ -1,0 +1,137 @@
+#include <SensirionI2CStc3x.h>
+#include <Wire.h>
+
+#include <LiquidCrystal_I2C.h>
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+SensirionI2CStc3x stc3x;
+
+#include <SPI.h>
+#include <SD.h>
+
+File myFile; // สร้างออฟเจก File สำหรับจัดการข้อมูล
+const int chipSelect = 10;
+
+unsigned long myTime;
+const int pingPin = 9;
+
+float gas;
+float temp;
+
+void setup() {
+  pinMode(SS, OUTPUT);
+  if (!SD.begin(chipSelect)) {
+    return;
+  }
+  
+  lcd.begin();
+  //lcd.noBacklight();   // ปิด backlight
+  lcd.backlight();       // เปิด backlight 
+  
+  lcd.home();
+  lcd.setCursor(0, 0);
+  lcd.print("Hello World");
+  delay(500);
+  lcd.clear();
+
+  Wire.begin();
+
+  uint16_t error;
+
+  stc3x.begin(Wire);
+
+  error = stc3x.setBinaryGas(0x0003);
+
+  error = stc3x.forcedRecalibration(0x4148);
+
+
+}
+
+void loop() {
+  myTime = millis();
+  
+  // establish variables for duration of the ping,
+  // and the distance result in inches and centimeters:
+  long duration, inches, cm;
+ 
+  // The PING))) is triggered by a HIGH pulse of 2 or more microseconds.
+  // Give a short LOW pulse beforehand to ensure a clean HIGH pulse:
+  pinMode(pingPin, OUTPUT);
+  digitalWrite(pingPin, LOW);
+  delayMicroseconds(2);
+  digitalWrite(pingPin, HIGH);
+  delayMicroseconds(2);
+  
+  digitalWrite(pingPin, LOW);
+
+  // The same pin is used to read the signal from the PING))): a HIGH
+  // pulse whose duration is the time (in microseconds) from the sending
+  // of the ping to the reception of its echo off of an object.
+  pinMode(pingPin, INPUT);
+  duration = pulseIn(pingPin, HIGH);
+ 
+  // convert the time into a distance
+  inches = microsecondsToInches(duration);
+  inches = inches +2;// Ultrasonic Calibration factor
+  cm = microsecondsToCentimeters(duration);
+  cm = cm +2; // Ultrasonic Calibration factor
+  
+  // Measure
+  uint16_t gasTicks;
+  uint16_t temperatureTicks;
+
+  uint16_t error;
+  char errorMessage[256];
+
+  error = stc3x.measureGasConcentration(gasTicks, temperatureTicks);
+  
+  if (cm <= 5) {
+     lcd.clear();
+     lcd.setCursor(0, 0);
+     lcd.print("Calibrating...");
+     lcd.setCursor(1, 0);
+     delay(1000);
+     lcd.clear();
+  }
+  lcd.setCursor(10, 0);
+  lcd.print((int)(cm));
+  
+  lcd.setCursor(0, 0);
+  lcd.print("Gas:");
+  lcd.setCursor(4, 0);
+  gas = 100 * ((float)gasTicks - 16384.0) / 32768.0;
+  lcd.print(gas);
+  
+  lcd.setCursor(0, 1);
+  lcd.print("Temp:");
+  lcd.setCursor(5, 1);
+  temp = (float)temperatureTicks / 200.0;
+  lcd.print(temp);
+
+  myFile = SD.open("test.txt", FILE_WRITE);
+  if (myFile) {
+    myFile.println(gas);
+    myFile.println(temp);
+    myFile.close(); // ปิดไฟล์
+  }
+
+  delay(1000);
+}
+
+long microsecondsToInches(long microseconds)
+{
+  // According to Parallax's datasheet for the PING))), there are
+  // 73.746 microseconds per inch (i.e. sound travels at 1130 feet per
+  // second).  This gives the distance travelled by the ping, outbound
+  // and return, so we divide by 2 to get the distance of the obstacle.
+  // See: http://www.parallax.com/dl/docs/prod/acc/28015-PING-v1.3.pdf
+  return microseconds / 74 / 2;
+}
+ 
+// microsecondsToCentimeters function
+long microsecondsToCentimeters(long microseconds)
+{
+  // The speed of sound is 340 m/s or 29 microseconds per centimeter.
+  // The ping travels out and back, so to find the distance of the
+  // object we take half of the distance travelled.
+  return microseconds / 29 / 2;
+}
