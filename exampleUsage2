@@ -1,0 +1,151 @@
+#include <SensirionI2CStc3x.h>
+#include <Wire.h>
+
+#include <LiquidCrystal_I2C.h>
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+SensirionI2CStc3x stc3x;
+
+#include <SPI.h>
+#include <SD.h>
+
+int buttonPin = 9;
+int buttonState = 0;
+
+int RedLED = 5;
+int BlueLED = 2;
+int flag = 0;
+
+File myFile; // สร้างออฟเจก File สำหรับจัดการข้อมูล
+const int chipSelect = 10;
+
+unsigned long myTime;
+unsigned long caliTime;
+unsigned long deltaTime;
+
+unsigned long previousMillis = 0;
+const long interval = 1000;
+
+
+const int pingPin = 9;
+
+float gas;
+float temp;
+
+void setup() {
+  pinMode(buttonPin, INPUT);
+  pinMode(RedLED , OUTPUT);
+  pinMode(BlueLED , OUTPUT);
+  
+  lcd.begin();
+  //lcd.noBacklight();   // ปิด backlight
+  lcd.backlight();       // เปิด backlight 
+
+  pinMode(SS, OUTPUT);
+  // Initialize the SD card
+  if (!SD.begin(chipSelect)) {
+    return;
+  }
+
+  Wire.begin();
+
+  uint16_t error;
+
+  stc3x.begin(Wire);
+
+  error = stc3x.setBinaryGas(0x0003);
+
+  error = stc3x.forcedRecalibration(0x4148);
+
+
+}
+
+void loop() {
+  myTime = millis();
+  unsigned long currentMillis = millis();
+  buttonState = digitalRead(buttonPin); // อ่านค่าสถานะขา3
+
+  if(flag == 0){
+    lcd.setCursor(0, 0);
+    lcd.print("Press the button");
+
+    if (buttonState == 1) {
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("Calibrating...");
+      lcd.setCursor(1, 0);
+      delay(1000);
+      lcd.clear();
+      caliTime = millis();
+      flag = 1;
+    }
+  }
+  else {
+    deltaTime = myTime - caliTime;
+    
+    // Measure
+    uint16_t gasTicks;
+    uint16_t temperatureTicks;
+
+    uint16_t error;
+    char errorMessage[256];
+
+    error = stc3x.measureGasConcentration(gasTicks, temperatureTicks);
+
+    if ((deltaTime % 1000) <= 500) {
+      digitalWrite(RedLED,HIGH); // turn on led
+      digitalWrite(BlueLED,LOW); // turn on led
+    }
+    else {
+      digitalWrite(BlueLED,HIGH); // turn on led
+      digitalWrite(RedLED,LOW); // turn on led
+    }
+
+    // if((deltaTime % 1000)){
+    //   myFile = SD.open("test.txt", FILE_WRITE);
+    //   if (myFile) {
+    //     myFile.print("Time: ");
+    //     myFile.print(deltaTime);
+    //     myFile.print(" ms / Gas: ");
+    //     myFile.print(gas);
+    //     myFile.print(" v% / Temp: ");
+    //     myFile.print(temp);
+    //     myFile.print(" C");
+    //     myFile.println("");
+    //     myFile.close(); // ปิดไฟล์
+    //   }
+    // }
+
+    if (currentMillis - previousMillis >= interval) {
+      myFile = SD.open("test.txt", FILE_WRITE);
+      if (myFile) {
+        myFile.print("Time: ");
+        myFile.print(deltaTime);
+        myFile.print(" ms / Gas: ");
+        myFile.print(gas);
+        myFile.print(" v% / Temp: ");
+        myFile.print(temp);
+        myFile.print(" C");
+        myFile.println("");
+        myFile.close(); // ปิดไฟล์
+      }
+      
+      // Update the previousMillis variable
+      previousMillis = currentMillis;
+    }
+
+    lcd.setCursor(10, 0);
+    lcd.print((int)((myTime - caliTime) % 1000));
+    
+    lcd.setCursor(0, 0);
+    lcd.print("Gas:");
+    lcd.setCursor(4, 0);
+    gas = 100 * ((float)gasTicks - 16384.0) / 32768.0;
+    lcd.print(gas);
+    
+    lcd.setCursor(0, 1);
+    lcd.print("Temp:");
+    lcd.setCursor(5, 1);
+    temp = (float)temperatureTicks / 200.0;
+    lcd.print(temp);
+  }
+}
